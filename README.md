@@ -46,6 +46,8 @@ LLM Orchestrator
 
 The server never touches file bytes. It generates pre-signed URLs so clients upload/download directly to/from object storage.
 
+See [flows.md](flows.md) for detailed sequence diagrams of every operation.
+
 ## Operational Flows
 
 ### Build (3-phase)
