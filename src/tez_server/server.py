@@ -5,6 +5,8 @@ from uuid import uuid4
 
 import boto3
 from fastmcp import FastMCP
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from tez_server.services.email import EmailService
 from tez_server.services.metadata import MetadataService
@@ -436,6 +438,24 @@ def tez_delete(tez_id: str, caller: str) -> dict[str, Any]:
     metadata.delete_tez(tez_id=tez_id)
 
     return {"tez_id": tez_id, "status": "deleted"}
+
+
+@mcp.custom_route("/api/tokens/{token}", methods=["GET"])
+async def exchange_token(request: Request) -> JSONResponse:
+    """Exchange a single-use token for its payload (pre-signed URLs)."""
+    token = request.path_params["token"]
+    payload = token_store.exchange(token)
+    if payload is None:
+        return JSONResponse(
+            {"error": "Token not found or expired"},
+            status_code=404,
+        )
+    return JSONResponse(payload)
+
+
+@mcp.custom_route("/health", methods=["GET"])
+async def health_check(request: Request) -> JSONResponse:
+    return JSONResponse({"status": "healthy", "service": "tez-server"})
 
 
 app = mcp.http_app()
