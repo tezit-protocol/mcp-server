@@ -7,7 +7,11 @@ name = "tez-mcp-server"
 version = "0.1.0"
 description = "Reference MCP server for the Tezit Protocol"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "fastmcp>=2.0",
+    "boto3>=1.35",
+    "sendgrid>=6.11",
+]
 
 [dependency-groups]
 dev = [
@@ -16,6 +20,8 @@ dev = [
     "pytest-asyncio>=1.0",
     "ruff>=0.4",
     "mypy>=1.10",
+    "moto[s3,dynamodb]>=5.0",
+    "boto3-stubs[s3,dynamodb]>=1.35",
 ]
 
 [tool.ruff]
@@ -33,7 +39,7 @@ python_version = "3.12"
 strict = true
 
 [tool.coverage.run]
-source = ["src"]
+source = ["src/tez_server"]
 branch = true
 relative_files = true
 

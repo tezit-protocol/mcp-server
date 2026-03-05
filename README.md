@@ -1,17 +1,33 @@
 # Tez MCP Server
 
-Reference MCP server for the [Tezit Protocol](https://github.com/tezit-protocol/spec) -- metadata, access control, and storage orchestration.
+Reference MCP server for the [Tezit Protocol](https://github.com/tezit-protocol/spec) -- metadata, access control, storage orchestration, and token-based URL exchange.
+
+See [Proposal #8](https://github.com/tezit-protocol/spec/issues/8) for the full architecture rationale.
 
 ## What it does
 
-The MCP server handles all server-side operations for Tez lifecycle management:
+The MCP server is the brain of the Tez system. It handles everything that requires cloud credentials, authorisation decisions, or persistent state -- so the [CLI](https://github.com/tezit-protocol/cli) doesn't have to.
 
-- **Build** -- reserve tez IDs, generate upload URLs, validate and activate bundles
-- **Share** -- grant access to recipients, send notifications
-- **Download** -- authorise access, generate download URLs
-- **List / Info / Delete** -- metadata queries and cleanup
+Any MCP-compatible LLM (Claude, GPT, etc.) discovers these tools automatically and orchestrates the full Tez lifecycle.
 
-The server exposes MCP tools that any compatible LLM can discover and orchestrate. It also provides an HTTP endpoint for token-based URL exchange with the [Tez CLI](https://github.com/tezit-protocol/cli).
+### MCP Tools
+
+| Tool | Purpose | Flow |
+|------|---------|------|
+| `tez_build` | Reserve a tez_id, generate upload URLs, return upload token | Build phase 1 |
+| `tez_build_confirm` | Validate uploaded files, activate the Tez | Build phase 3 |
+| `tez_download` | Authorise access, generate download URLs, return download token | Download phase 1 |
+| `tez_share` | Grant access to a recipient, send notification email | Share (MCP only) |
+| `tez_list` | List all Tez accessible to a user | List (MCP only) |
+| `tez_info` | Get metadata without generating download URLs | Info (MCP only) |
+| `tez_delete` | Remove all files from storage and delete metadata | Delete (MCP only) |
+
+### HTTP Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/tokens/{token}` | GET | Exchange a single-use token for pre-signed URLs |
+| `/health` | GET | Health check |
 
 ## Architecture
 
@@ -19,15 +35,172 @@ The server exposes MCP tools that any compatible LLM can discover and orchestrat
 LLM Orchestrator
     |
     +-- MCP Tools --> MCP Server (this repo)
-    |                     +-- Metadata store
-    |                     +-- Object storage (pre-signed URLs)
+    |                     +-- Metadata store (DynamoDB)
+    |                     +-- Object storage (S3 pre-signed URLs)
+    |                     +-- Token store (in-memory)
     |                     +-- Access control
-    |                     +-- Notifications
+    |                     +-- Email notifications (SendGrid)
     |
     +-- Shell -----> CLI (tezit-protocol/cli)
 ```
 
-See [Proposal #8](https://github.com/tezit-protocol/spec/issues/8) for the full architecture description.
+The server never touches file bytes. It generates pre-signed URLs so clients upload/download directly to/from object storage.
+
+## Operational Flows
+
+### Build (3-phase)
+
+```
+Phase 1 -- Reserve (MCP)
+  LLM calls tez_build(name, description, creator, files[])
+  Server: generates tez_id, creates pending metadata record
+  Server: generates pre-signed PUT URLs, stores against token
+  Returns: {tez_id, upload_token, server}
+
+Phase 2 -- Upload (CLI)
+  CLI exchanges token via GET /api/tokens/{token}
+  CLI uploads files directly to storage via pre-signed URLs
+
+Phase 3 -- Confirm (MCP)
+  LLM calls tez_build_confirm(tez_id)
+  Server: validates all files exist in storage (HeadObject per file)
+  Server: updates status from "pending_upload" to "active"
+```
+
+### Download (2-phase)
+
+```
+Phase 1 -- Authorise (MCP)
+  LLM calls tez_download(tez_id, caller)
+  Server: verifies caller is creator or recipient
+  Server: generates pre-signed GET URLs, stores against token
+  Returns: {tez_id, download_token, server}
+
+Phase 2 -- Fetch (CLI)
+  CLI exchanges token via GET /api/tokens/{token}
+  CLI downloads files directly from storage via pre-signed URLs
+```
+
+### Share (MCP only)
+
+```
+  LLM calls tez_share(tez_id, recipient_email, caller)
+  Server: verifies caller is creator
+  Server: adds recipient to access list
+  Server: sends notification email (if configured)
+```
+
+### List / Info / Delete (MCP only)
+
+```
+  tez_list(caller)           -- all Tez created by or shared with caller
+  tez_info(tez_id, caller)   -- metadata without download URLs
+  tez_delete(tez_id, caller) -- removes storage objects + metadata record
+```
+
+## Token Exchange
+
+The server never returns pre-signed URLs directly to the LLM. Instead:
+
+1. Server generates URLs and stores them in an in-memory token store
+2. Server returns a short-lived, opaque token to the LLM
+3. LLM passes the token to the CLI as a command-line argument
+4. CLI exchanges the token for URLs via `GET /api/tokens/{token}`
+5. Token is consumed on exchange (single-use)
+
+**Why:** Pre-signed URLs are 500+ characters each, contain storage path information, and waste LLM context tokens. A 32-character hex token is shorter, safer, and cheaper.
+
+## Services
+
+The server is composed of four services behind abstract interfaces:
+
+### StorageService
+
+Generates pre-signed URLs (PUT for upload, GET for download), validates uploads via HeadObject, and handles deletion. All file bytes flow directly between client and storage -- this service never sees them.
+
+- `generate_upload_urls(tez_id, files, expires_in)` -- PUT URLs for context files + manifest
+- `generate_download_urls(tez_id, files, expires_in)` -- GET URLs for all files
+- `validate_uploads(tez_id, files)` -- HeadObject per file, returns missing list
+- `delete_tez(tez_id)` -- ListObjects + DeleteObjects under prefix
+
+### MetadataService
+
+CRUD operations against the metadata store. Source of truth for ownership, access control, and Tez status.
+
+- `create_tez(record)` -- conditional write (prevents ID collision)
+- `get_tez(tez_id)` -- single record lookup
+- `update_status(tez_id, status)` -- status transitions (pending_upload -> active)
+- `add_recipient(tez_id, email)` -- append to recipients list (idempotent)
+- `list_by_creator(email)` -- GSI query
+- `list_shared_with(email)` -- scan with filter
+- `is_authorised(tez_id, email)` -- creator or in recipients[]
+- `delete_tez(tez_id)` -- remove record
+
+### TokenStore
+
+In-memory, thread-safe, single-use token store with TTL. Tokens are 32-character hex strings that map to a payload (pre-signed URL dict).
+
+- `create(payload, ttl)` -- store and return token
+- `exchange(token)` -- retrieve and delete atomically, returns None if expired/missing
+- Auto-purges expired entries on each operation
+
+### EmailService
+
+Sends sharing notification emails via SendGrid. Includes both plain text and branded HTML templates.
+
+- `send_share_notification(recipient, sharer_name, tez_name, tez_id, message)`
+- Optional -- server works without email configured
+
+## Metadata Record Schema
+
+```json
+{
+  "tez_id": "a1b2c3d4",
+  "creator": "adam@example.com",
+  "creator_name": "Adam Cross",
+  "name": "Q4 Board Meeting",
+  "description": "Context package for the Q4 board meeting",
+  "status": "active",
+  "file_count": 3,
+  "total_size": 45200,
+  "files": [
+    {"name": "transcript.md", "size": 12000, "content_type": "text/markdown"},
+    {"name": "slides.pdf", "size": 30000, "content_type": "application/pdf"},
+    {"name": "actions.md", "size": 3200, "content_type": "text/markdown"}
+  ],
+  "recipients": ["bob@example.com"],
+  "created_at": "2026-03-05T12:00:00+00:00",
+  "updated_at": "2026-03-05T12:01:00+00:00"
+}
+```
+
+## Configuration
+
+| Environment Variable | Default | Description |
+|---------------------|---------|-------------|
+| `TEZ_S3_BUCKET` | `tez-packages` | S3 bucket for file storage |
+| `TEZ_DYNAMO_TABLE` | `tez-metadata` | DynamoDB table name |
+| `TEZ_AWS_REGION` | `eu-west-2` | AWS region |
+| `TEZ_AWS_ACCOUNT_ID` | (none) | AWS account ID for bucket owner verification |
+| `TEZ_SERVER_URL` | (none) | Public URL of this server (returned to clients) |
+| `TEZ_SENDGRID_API_KEY` | (none) | SendGrid API key for email notifications |
+| `PORT` | `8000` | HTTP port |
+
+## Project Structure
+
+```
+mcp-server/
+  src/
+    server.py              -- MCP server + HTTP routes (entry point)
+    token_store.py         -- In-memory token store with TTL
+    services/
+      storage.py           -- S3 pre-signed URL generation + validation
+      metadata.py          -- DynamoDB CRUD + access control
+      email.py             -- SendGrid email notifications
+  tests/
+  Dockerfile
+  pyproject.toml
+```
 
 ## Development
 
@@ -38,7 +211,7 @@ uv sync --dev
 # Run tests
 uv run pytest --cov --cov-report=term-missing
 
-# Lint
+# Lint + format
 uv run ruff check .
 uv run ruff format --check .
 
@@ -50,3 +223,4 @@ uv run mypy src/
 
 - [Tezit Protocol Spec](https://github.com/tezit-protocol/spec) -- protocol specification
 - [Tez CLI](https://github.com/tezit-protocol/cli) -- companion CLI for local file operations
+- [Proposal #8](https://github.com/tezit-protocol/spec/issues/8) -- architecture proposal
