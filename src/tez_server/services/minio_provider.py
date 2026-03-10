@@ -18,9 +18,9 @@ from minio.deleteobjects import DeleteObject
 from minio.error import S3Error
 
 from tez_server.services.storage import (
+    DEFAULT_URL_EXPIRY,
     MANIFEST_FILENAME,
     TEZ_MD_FILENAME,
-    DEFAULT_URL_EXPIRY,
     StorageProvider,
     StorageProviderError,
     ValidationResult,
@@ -217,7 +217,9 @@ class MinIOStorageProvider(StorageProvider):
         """
         try:
             prefix = f"{tez_id}/"
-            objects = self._client.list_objects(self.bucket, prefix=prefix, recursive=True)
+            objects = self._client.list_objects(
+                self.bucket, prefix=prefix, recursive=True
+            )
             delete_list = [DeleteObject(obj.object_name) for obj in objects]
             if not delete_list:
                 return

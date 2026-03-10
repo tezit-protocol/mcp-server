@@ -437,7 +437,9 @@ class TestStorageServiceErrors:
         svc.s3.list_objects_v2 = self._raiser(  # type: ignore[assignment]
             self._client_error("InvalidClientTokenId", "The security token is invalid")
         )
-        with pytest.raises(StorageProviderError, match="Invalid or expired AWS credentials"):
+        with pytest.raises(
+            StorageProviderError, match="Invalid or expired AWS credentials"
+        ):
             svc.delete_tez("abc123")
 
     def test_no_such_bucket_raises_storage_provider_error(

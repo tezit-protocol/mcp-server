@@ -27,6 +27,7 @@ TEZ_ID = "abc123"
 # Shared helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_provider(mock_client: MagicMock) -> MinIOStorageProvider:
     return MinIOStorageProvider(client=mock_client, bucket=TEST_BUCKET)
 
@@ -74,8 +75,8 @@ class TestGenerateUploadUrls:
 
     def test_context_files_use_context_prefix(self) -> None:
         client = MagicMock()
-        client.presigned_put_object.side_effect = (
-            lambda bucket, key, expires: f"http://minio/{key}"
+        client.presigned_put_object.side_effect = lambda bucket, key, expires: (
+            f"http://minio/{key}"
         )
         svc = _make_provider(client)
 
@@ -86,8 +87,8 @@ class TestGenerateUploadUrls:
 
     def test_manifest_files_at_tez_root(self) -> None:
         client = MagicMock()
-        client.presigned_put_object.side_effect = (
-            lambda bucket, key, expires: f"http://minio/{key}"
+        client.presigned_put_object.side_effect = lambda bucket, key, expires: (
+            f"http://minio/{key}"
         )
         svc = _make_provider(client)
 
@@ -181,7 +182,8 @@ class TestValidateUploadsNotFound:
 class TestDeleteTez:
     def test_deletes_all_objects(self) -> None:
         client = MagicMock()
-        obj1, obj2 = MagicMock(object_name=f"{TEZ_ID}/manifest.json"), MagicMock(object_name=f"{TEZ_ID}/context/a.md")
+        obj1 = MagicMock(object_name=f"{TEZ_ID}/manifest.json")
+        obj2 = MagicMock(object_name=f"{TEZ_ID}/context/a.md")
         client.list_objects.return_value = iter([obj1, obj2])
         client.remove_objects.return_value = iter([])  # no errors
         svc = _make_provider(client)
@@ -222,7 +224,13 @@ class TestMisconfiguration:
         env = {"STORAGE_BACKEND": "minio"}  # all MINIO_* vars absent
         with patch.dict(os.environ, env, clear=False):
             # Remove any MINIO_* vars that might be set in the environment
-            for key in ["MINIO_ENDPOINT", "MINIO_ACCESS_KEY", "MINIO_SECRET_KEY", "MINIO_BUCKET"]:
+            minio_keys = [
+                "MINIO_ENDPOINT",
+                "MINIO_ACCESS_KEY",
+                "MINIO_SECRET_KEY",
+                "MINIO_BUCKET",
+            ]
+            for key in minio_keys:
                 os.environ.pop(key, None)
             with pytest.raises(StorageProviderError, match="Missing required env vars"):
                 get_storage_provider()
@@ -230,9 +238,11 @@ class TestMisconfiguration:
     def test_unknown_backend_raises_storage_provider_error(self) -> None:
         from tez_server.services.storage_factory import get_storage_provider
 
-        with patch.dict(os.environ, {"STORAGE_BACKEND": "gcs"}):
-            with pytest.raises(StorageProviderError, match="Unknown STORAGE_BACKEND"):
-                get_storage_provider()
+        with (
+            patch.dict(os.environ, {"STORAGE_BACKEND": "gcs"}),
+            pytest.raises(StorageProviderError, match="Unknown STORAGE_BACKEND"),
+        ):
+            get_storage_provider()
 
 
 # ---------------------------------------------------------------------------

@@ -194,7 +194,7 @@ class StorageService(StorageProvider):
         self,
         e: ConnectTimeoutError | ReadTimeoutError | EndpointResolutionError,
     ) -> NoReturn:
-        """Convert a network-level botocore error into a :class:`StorageProviderError`."""
+        """Convert a network-level botocore error into a StorageProviderError."""
         raise StorageProviderError(
             f"Network error reaching S3 bucket '{self.bucket}': {e}"
         ) from e

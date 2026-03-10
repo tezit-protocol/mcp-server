@@ -10,10 +10,14 @@ from __future__ import annotations
 import os
 
 import boto3
-
-from tez_server.services.storage import StorageProvider, StorageProviderError, StorageService
-from tez_server.services.minio_provider import MinIOStorageProvider
 from minio import Minio
+
+from tez_server.services.minio_provider import MinIOStorageProvider
+from tez_server.services.storage import (
+    StorageProvider,
+    StorageProviderError,
+    StorageService,
+)
 
 
 def get_storage_provider() -> StorageProvider:
