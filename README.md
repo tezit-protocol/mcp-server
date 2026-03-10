@@ -180,61 +180,13 @@ Sends sharing notification emails via SendGrid. Includes both plain text and bra
 
 | Environment Variable | Default | Description |
 |---------------------|---------|-------------|
-| `STORAGE_BACKEND` | `s3` | Storage adapter: `s3` or `minio` |
-| `STORAGE_URL_EXPIRY_SECONDS` | `900` | Pre-signed URL expiry in seconds |
-| `TEZ_S3_BUCKET` | `tez-packages` | S3 bucket name (S3 backend only) |
+| `TEZ_S3_BUCKET` | `tez-packages` | S3 bucket for file storage |
 | `TEZ_DYNAMO_TABLE` | `tez-metadata` | DynamoDB table name |
 | `TEZ_AWS_REGION` | `eu-west-2` | AWS region |
-| `TEZ_AWS_ACCOUNT_ID` | (none) | AWS account ID for bucket owner verification (S3 backend only) |
+| `TEZ_AWS_ACCOUNT_ID` | (none) | AWS account ID for bucket owner verification |
 | `TEZ_SERVER_URL` | (none) | Public URL of this server (returned to clients) |
 | `TEZ_SENDGRID_API_KEY` | (none) | SendGrid API key for email notifications |
 | `PORT` | `8000` | HTTP port |
-| `MINIO_ENDPOINT` | (none) | MinIO endpoint e.g. `localhost:9000` (MinIO backend only) |
-| `MINIO_ACCESS_KEY` | (none) | MinIO access key (MinIO backend only) |
-| `MINIO_SECRET_KEY` | (none) | MinIO secret key (MinIO backend only) |
-| `MINIO_BUCKET` | (none) | MinIO bucket name (MinIO backend only) |
-| `MINIO_SECURE` | `true` | Use TLS; set `false` for local dev (MinIO backend only) |
-
-## Local Development with MinIO
-
-MinIO is an S3-compatible object store you can run locally without AWS credentials.
-
-### 1. Start MinIO
-
-```bash
-docker compose up -d
-```
-
-- **API:** `http://localhost:9000`
-- **Console:** `http://localhost:9001` — login: `minioadmin` / `minioadmin`
-
-### 2. Create a bucket
-
-Log in to the console at `http://localhost:9001` and create a bucket named `tez-packages`, or use the CLI:
-
-```bash
-docker run --rm --network host minio/mc alias set local http://localhost:9000 minioadmin minioadmin
-docker run --rm --network host minio/mc mb local/tez-packages
-```
-
-### 3. Run the server against MinIO
-
-```bash
-export STORAGE_BACKEND=minio
-export MINIO_ENDPOINT=localhost:9000
-export MINIO_ACCESS_KEY=minioadmin
-export MINIO_SECRET_KEY=minioadmin
-export MINIO_BUCKET=tez-packages
-export MINIO_SECURE=false
-
-uv run python -m tez_server
-```
-
-### Switch back to S3
-
-```bash
-export STORAGE_BACKEND=s3
-```
 
 ## Project Structure
 
