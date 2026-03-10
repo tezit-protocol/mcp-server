@@ -2,19 +2,17 @@
 
 [Full report](https://htmlpreview.github.io/?https://github.com/tezit-protocol/mcp-server/blob/python-coverage-comment-action-data/htmlcov/index.html)
 
-| Name                                         |    Stmts |     Miss |   Branch |   BrPart |   Cover |   Missing |
-|--------------------------------------------- | -------: | -------: | -------: | -------: | ------: | --------: |
-| src/tez\_server/\_\_init\_\_.py              |        0 |        0 |        0 |        0 |    100% |           |
-| src/tez\_server/\_\_main\_\_.py              |        2 |        2 |        0 |        0 |      0% |       1-3 |
-| src/tez\_server/server.py                    |      149 |        0 |       28 |        0 |    100% |           |
-| src/tez\_server/services/\_\_init\_\_.py     |        0 |        0 |        0 |        0 |    100% |           |
-| src/tez\_server/services/email.py            |       36 |        0 |        6 |        1 |     98% |  20->exit |
-| src/tez\_server/services/metadata.py         |       40 |        0 |        8 |        0 |    100% |           |
-| src/tez\_server/services/minio\_provider.py  |       89 |        0 |       26 |        0 |    100% |           |
-| src/tez\_server/services/storage.py          |      118 |        9 |       34 |        1 |     93% |29, 279-282, 322-325 |
-| src/tez\_server/services/storage\_factory.py |       30 |        2 |        6 |        1 |     92% |     80-86 |
-| src/tez\_server/token\_store.py              |       38 |        1 |        6 |        1 |     95% |        81 |
-| **TOTAL**                                    |  **502** |   **14** |  **114** |    **4** | **97%** |           |
+| Name                                     |    Stmts |     Miss |   Branch |   BrPart |   Cover |   Missing |
+|----------------------------------------- | -------: | -------: | -------: | -------: | ------: | --------: |
+| src/tez\_server/\_\_init\_\_.py          |        0 |        0 |        0 |        0 |    100% |           |
+| src/tez\_server/\_\_main\_\_.py          |        2 |        2 |        0 |        0 |      0% |       1-3 |
+| src/tez\_server/server.py                |      153 |        0 |       28 |        0 |    100% |           |
+| src/tez\_server/services/\_\_init\_\_.py |        0 |        0 |        0 |        0 |    100% |           |
+| src/tez\_server/services/email.py        |       36 |        0 |        6 |        1 |     98% |  20->exit |
+| src/tez\_server/services/metadata.py     |       40 |        0 |        8 |        0 |    100% |           |
+| src/tez\_server/services/storage.py      |       76 |        1 |       28 |        1 |     98% |        20 |
+| src/tez\_server/token\_store.py          |       38 |        1 |        6 |        1 |     95% |        81 |
+| **TOTAL**                                |  **345** |    **4** |   **76** |    **3** | **98%** |           |
 
 
 ## Setup coverage badge
