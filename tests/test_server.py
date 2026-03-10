@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any
@@ -29,7 +30,15 @@ def _mock_aws_env() -> Generator[tuple[S3Client, Any], None, None]:
         s3 = boto3.client("s3", region_name=TEST_REGION)
         dynamo = boto3.resource("dynamodb", region_name=TEST_REGION)
         with (
-            patch("tez_server.server.S3_BUCKET", TEST_BUCKET),
+            patch.dict(
+                os.environ,
+                {
+                    "STORAGE_BACKEND": "s3",
+                    "TEZ_S3_BUCKET": TEST_BUCKET,
+                    "TEZ_AWS_REGION": TEST_REGION,
+                    "TEZ_AWS_ACCOUNT_ID": TEST_ACCOUNT_ID,
+                },
+            ),
             patch("tez_server.server.DYNAMO_TABLE", TEST_TABLE),
             patch("tez_server.server.AWS_REGION", TEST_REGION),
         ):
@@ -98,9 +107,14 @@ class TestCheckS3Tool:
             )
 
             with (
-                patch("tez_server.server.S3_BUCKET", TEST_BUCKET),
+                patch.dict(
+                    os.environ,
+                    {
+                        "TEZ_S3_BUCKET": TEST_BUCKET,
+                        "TEZ_AWS_ACCOUNT_ID": TEST_ACCOUNT_ID,
+                    },
+                ),
                 patch("tez_server.server.AWS_REGION", TEST_REGION),
-                patch("tez_server.server.AWS_ACCOUNT_ID", TEST_ACCOUNT_ID),
             ):
                 from tez_server.server import check_s3
 
@@ -109,9 +123,7 @@ class TestCheckS3Tool:
                 assert TEST_REGION in result
 
     def test_check_s3_no_account_id(self, aws_credentials: None) -> None:
-        with (
-            patch("tez_server.server.AWS_ACCOUNT_ID", None),
-        ):
+        with patch.dict(os.environ, {"TEZ_AWS_ACCOUNT_ID": ""}):
             from tez_server.server import check_s3
 
             result = check_s3()
@@ -122,9 +134,14 @@ class TestCheckS3Tool:
             from botocore.exceptions import ClientError
 
             with (
-                patch("tez_server.server.S3_BUCKET", "nonexistent-bucket"),
+                patch.dict(
+                    os.environ,
+                    {
+                        "TEZ_S3_BUCKET": "nonexistent-bucket",
+                        "TEZ_AWS_ACCOUNT_ID": TEST_ACCOUNT_ID,
+                    },
+                ),
                 patch("tez_server.server.AWS_REGION", TEST_REGION),
-                patch("tez_server.server.AWS_ACCOUNT_ID", TEST_ACCOUNT_ID),
             ):
                 from tez_server.server import check_s3
 
