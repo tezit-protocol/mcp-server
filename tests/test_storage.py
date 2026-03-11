@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from botocore.exceptions import ClientError, ConnectTimeoutError, ReadTimeoutError
 
 from tests.conftest import TEST_BUCKET
 
@@ -27,6 +28,7 @@ storage = pytest.importorskip(
     reason="tez_server.services.storage not yet implemented",
 )
 StorageService = storage.StorageService
+StorageProviderError = storage.StorageProviderError
 
 
 def _upload_context_files(
@@ -318,8 +320,6 @@ class TestValidateUploads:
         assert result.success is True
 
     def test_head_object_reraises_non_404(self, s3_client: S3Client) -> None:
-        from botocore.exceptions import ClientError
-
         svc = StorageService(s3_client=s3_client, bucket=TEST_BUCKET)
 
         # Patch head_object to raise a 403 (not 404)
@@ -332,7 +332,7 @@ class TestValidateUploads:
             )
 
         svc.s3.head_object = raise_403  # type: ignore[assignment]
-        with pytest.raises(ClientError, match="Forbidden"):
+        with pytest.raises(StorageProviderError, match="Permission denied"):
             svc._head_object("abc123/context/notes.md")
         svc.s3.head_object = original  # type: ignore[assignment]
 
@@ -406,3 +406,164 @@ class TestDeleteTezFiles:
         # def456 untouched
         r2 = s3_client.list_objects_v2(Bucket=TEST_BUCKET, Prefix="def456/")
         assert r2["KeyCount"] == 1
+
+
+# ===================================================================
+# Error handling -- all S3 errors must surface as StorageProviderError
+# ===================================================================
+class TestStorageServiceErrors:
+    """StorageService must wrap all provider errors in StorageProviderError."""
+
+    @staticmethod
+    def _client_error(code: str, message: str = "test error") -> ClientError:
+        return ClientError(
+            {"Error": {"Code": code, "Message": message}},
+            "TestOperation",
+        )
+
+    @staticmethod
+    def _raiser(exc: Exception) -> Any:
+        """Return a callable that raises ``exc`` when called."""
+
+        def _raise(*args: Any, **kwargs: Any) -> Any:
+            raise exc
+
+        return _raise
+
+    def test_invalid_credentials_raises_storage_provider_error(
+        self, s3_client: S3Client
+    ) -> None:
+        svc = StorageService(s3_client=s3_client, bucket=TEST_BUCKET)
+        svc.s3.list_objects_v2 = self._raiser(  # type: ignore[assignment]
+            self._client_error("InvalidClientTokenId", "The security token is invalid")
+        )
+        with pytest.raises(
+            StorageProviderError, match="Invalid or expired AWS credentials"
+        ):
+            svc.delete_tez("abc123")
+
+    def test_no_such_bucket_raises_storage_provider_error(
+        self, s3_client: S3Client
+    ) -> None:
+        svc = StorageService(s3_client=s3_client, bucket=TEST_BUCKET)
+        svc.s3.list_objects_v2 = self._raiser(  # type: ignore[assignment]
+            self._client_error("NoSuchBucket", "The specified bucket does not exist")
+        )
+        with pytest.raises(StorageProviderError, match="does not exist"):
+            svc.delete_tez("abc123")
+
+    def test_access_denied_raises_storage_provider_error(
+        self, s3_client: S3Client
+    ) -> None:
+        svc = StorageService(s3_client=s3_client, bucket=TEST_BUCKET)
+        svc.s3.list_objects_v2 = self._raiser(  # type: ignore[assignment]
+            self._client_error("AccessDenied", "Access Denied")
+        )
+        with pytest.raises(StorageProviderError, match="Permission denied"):
+            svc.delete_tez("abc123")
+
+    def test_connect_timeout_raises_storage_provider_error(
+        self, s3_client: S3Client
+    ) -> None:
+        svc = StorageService(s3_client=s3_client, bucket=TEST_BUCKET)
+        svc.s3.list_objects_v2 = self._raiser(  # type: ignore[assignment]
+            ConnectTimeoutError(endpoint_url="https://s3.amazonaws.com")
+        )
+        with pytest.raises(StorageProviderError, match="Network error"):
+            svc.delete_tez("abc123")
+
+    def test_read_timeout_raises_storage_provider_error(
+        self, s3_client: S3Client
+    ) -> None:
+        svc = StorageService(s3_client=s3_client, bucket=TEST_BUCKET)
+        svc.s3.head_object = self._raiser(  # type: ignore[assignment]
+            ReadTimeoutError(endpoint_url="https://s3.amazonaws.com")
+        )
+        with pytest.raises(StorageProviderError, match="Network error"):
+            svc._head_object("abc123/context/file.md")
+
+    def test_head_object_non_404_wrapped_as_storage_provider_error(
+        self, s3_client: S3Client
+    ) -> None:
+        svc = StorageService(s3_client=s3_client, bucket=TEST_BUCKET)
+        svc.s3.head_object = self._raiser(  # type: ignore[assignment]
+            self._client_error("403", "Forbidden")
+        )
+        with pytest.raises(StorageProviderError):
+            svc._head_object("abc123/context/file.md")
+
+    def test_no_raw_boto3_exceptions_leak(self, s3_client: S3Client) -> None:
+        svc = StorageService(s3_client=s3_client, bucket=TEST_BUCKET)
+        svc.s3.list_objects_v2 = self._raiser(  # type: ignore[assignment]
+            self._client_error("InternalError", "Something went wrong")
+        )
+        with pytest.raises(StorageProviderError):
+            svc.delete_tez("abc123")
+
+    def test_client_error_in_generate_upload_urls(self, s3_client: S3Client) -> None:
+        svc = StorageService(s3_client=s3_client, bucket=TEST_BUCKET)
+        svc.s3.generate_presigned_url = self._raiser(  # type: ignore[assignment]
+            self._client_error("AccessDenied", "Access Denied")
+        )
+        with pytest.raises(StorageProviderError, match="Permission denied"):
+            svc.generate_upload_urls(tez_id="abc123", files=[])
+
+    def test_network_error_in_generate_upload_urls(self, s3_client: S3Client) -> None:
+        svc = StorageService(s3_client=s3_client, bucket=TEST_BUCKET)
+        svc.s3.generate_presigned_url = self._raiser(  # type: ignore[assignment]
+            ConnectTimeoutError(endpoint_url="https://s3.amazonaws.com")
+        )
+        with pytest.raises(StorageProviderError, match="Network error"):
+            svc.generate_upload_urls(tez_id="abc123", files=[])
+
+    def test_client_error_in_generate_download_urls(self, s3_client: S3Client) -> None:
+        svc = StorageService(s3_client=s3_client, bucket=TEST_BUCKET)
+        svc.s3.generate_presigned_url = self._raiser(  # type: ignore[assignment]
+            self._client_error("AccessDenied", "Access Denied")
+        )
+        with pytest.raises(StorageProviderError, match="Permission denied"):
+            svc.generate_download_urls(tez_id="abc123", files=[])
+
+    def test_network_error_in_generate_download_urls(self, s3_client: S3Client) -> None:
+        svc = StorageService(s3_client=s3_client, bucket=TEST_BUCKET)
+        svc.s3.generate_presigned_url = self._raiser(  # type: ignore[assignment]
+            ConnectTimeoutError(endpoint_url="https://s3.amazonaws.com")
+        )
+        with pytest.raises(StorageProviderError, match="Network error"):
+            svc.generate_download_urls(tez_id="abc123", files=[])
+
+    def test_custom_expiry_reflected_in_upload_url(
+        self, s3_client: S3Client, sample_files: list[dict[str, Any]]
+    ) -> None:
+        import time
+        from urllib.parse import parse_qs, urlparse
+
+        expires_in = 300
+        before = int(time.time())
+        svc = StorageService(s3_client=s3_client, bucket=TEST_BUCKET)
+        urls = svc.generate_upload_urls(
+            tez_id="abc123", files=sample_files, expires_in=expires_in
+        )
+        after = int(time.time())
+        for url in urls.values():
+            params = parse_qs(urlparse(url).query)
+            expires_ts = int(params["Expires"][0])
+            assert before + expires_in <= expires_ts <= after + expires_in + 2
+
+    def test_custom_expiry_reflected_in_download_url(
+        self, s3_client: S3Client, sample_files: list[dict[str, Any]]
+    ) -> None:
+        import time
+        from urllib.parse import parse_qs, urlparse
+
+        expires_in = 1200
+        before = int(time.time())
+        svc = StorageService(s3_client=s3_client, bucket=TEST_BUCKET)
+        urls = svc.generate_download_urls(
+            tez_id="abc123", files=sample_files, expires_in=expires_in
+        )
+        after = int(time.time())
+        for url in urls.values():
+            params = parse_qs(urlparse(url).query)
+            expires_ts = int(params["Expires"][0])
+            assert before + expires_in <= expires_ts <= after + expires_in + 2

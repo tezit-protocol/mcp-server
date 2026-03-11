@@ -10,13 +10,11 @@ from starlette.responses import JSONResponse
 
 from tez_server.services.email import EmailService
 from tez_server.services.metadata import MetadataService
-from tez_server.services.storage import StorageService
+from tez_server.services.storage_factory import get_storage_provider
 from tez_server.token_store import TokenStore
 
-S3_BUCKET = os.environ.get("TEZ_S3_BUCKET", "tez-packages")
 DYNAMO_TABLE = os.environ.get("TEZ_DYNAMO_TABLE", "tez-metadata")
 AWS_REGION = os.environ.get("TEZ_AWS_REGION", "eu-west-2")
-AWS_ACCOUNT_ID = os.environ.get("TEZ_AWS_ACCOUNT_ID")
 
 SERVER_URL = os.environ.get("TEZ_SERVER_URL", "")
 
@@ -86,16 +84,14 @@ def add(a: int, b: int) -> int:
 
 
 @mcp.tool()
-def check_s3() -> str:
-    """Check connectivity to the S3 bucket used for Tez package storage.
+def check_storage() -> str:
+    """Check connectivity to the configured storage backend.
 
+    Works with any backend (S3 or MinIO) based on the STORAGE_BACKEND env var.
     Returns a status message confirming whether the connection is working.
     """
-    if not AWS_ACCOUNT_ID:
-        return "TEZ_AWS_ACCOUNT_ID not configured -- cannot verify bucket ownership"
-    s3 = boto3.client("s3", region_name=AWS_REGION)
-    s3.head_bucket(Bucket=S3_BUCKET, ExpectedBucketOwner=AWS_ACCOUNT_ID)
-    return f"Connected to S3 bucket '{S3_BUCKET}' in {AWS_REGION}"
+    storage = get_storage_provider()
+    return storage.check_health()
 
 
 @mcp.tool()
@@ -137,13 +133,10 @@ def tez_build(
     tez_id = uuid4().hex[:8]
     now = datetime.now(tz=UTC).isoformat()
 
-    s3_client = boto3.client("s3", region_name=AWS_REGION)
     dynamo = boto3.resource("dynamodb", region_name=AWS_REGION)
     table = dynamo.Table(DYNAMO_TABLE)
 
-    storage = StorageService(
-        s3_client=s3_client, bucket=S3_BUCKET, account_id=AWS_ACCOUNT_ID
-    )
+    storage = get_storage_provider()
     metadata = MetadataService(table=table)
 
     expires_in = 900
@@ -192,13 +185,10 @@ def tez_build_confirm(tez_id: str) -> dict[str, Any]:
     Args:
         tez_id: The Tez identifier returned by tez_build.
     """
-    s3_client = boto3.client("s3", region_name=AWS_REGION)
     dynamo = boto3.resource("dynamodb", region_name=AWS_REGION)
     table = dynamo.Table(DYNAMO_TABLE)
 
-    storage = StorageService(
-        s3_client=s3_client, bucket=S3_BUCKET, account_id=AWS_ACCOUNT_ID
-    )
+    storage = get_storage_provider()
     metadata = MetadataService(table=table)
 
     record = metadata.get_tez(tez_id)
@@ -235,13 +225,10 @@ def tez_download(tez_id: str, caller: str) -> dict[str, Any]:
         tez_id: The Tez identifier.
         caller: Email of the requesting user.
     """
-    s3_client = boto3.client("s3", region_name=AWS_REGION)
     dynamo = boto3.resource("dynamodb", region_name=AWS_REGION)
     table = dynamo.Table(DYNAMO_TABLE)
 
-    storage = StorageService(
-        s3_client=s3_client, bucket=S3_BUCKET, account_id=AWS_ACCOUNT_ID
-    )
+    storage = get_storage_provider()
     metadata = MetadataService(table=table)
 
     record = metadata.get_tez(tez_id)
@@ -418,13 +405,10 @@ def tez_delete(tez_id: str, caller: str) -> dict[str, Any]:
         tez_id: The Tez identifier.
         caller: Email of the requesting user (must be the creator).
     """
-    s3_client = boto3.client("s3", region_name=AWS_REGION)
     dynamo = boto3.resource("dynamodb", region_name=AWS_REGION)
     table = dynamo.Table(DYNAMO_TABLE)
 
-    storage = StorageService(
-        s3_client=s3_client, bucket=S3_BUCKET, account_id=AWS_ACCOUNT_ID
-    )
+    storage = get_storage_provider()
     metadata = MetadataService(table=table)
 
     record = metadata.get_tez(tez_id)
