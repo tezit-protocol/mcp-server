@@ -84,18 +84,14 @@ def add(a: int, b: int) -> int:
 
 
 @mcp.tool()
-def check_s3() -> str:
-    """Check connectivity to the S3 bucket used for Tez package storage.
+def check_storage() -> str:
+    """Check connectivity to the configured storage backend.
 
+    Works with any backend (S3 or MinIO) based on the STORAGE_BACKEND env var.
     Returns a status message confirming whether the connection is working.
     """
-    s3_bucket = os.environ.get("TEZ_S3_BUCKET", "tez-packages")
-    account_id = os.environ.get("TEZ_AWS_ACCOUNT_ID")
-    if not account_id:
-        return "TEZ_AWS_ACCOUNT_ID not configured -- cannot verify bucket ownership"
-    s3 = boto3.client("s3", region_name=AWS_REGION)
-    s3.head_bucket(Bucket=s3_bucket, ExpectedBucketOwner=account_id)
-    return f"Connected to S3 bucket '{s3_bucket}' in {AWS_REGION}"
+    storage = get_storage_provider()
+    return storage.check_health()
 
 
 @mcp.tool()

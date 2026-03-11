@@ -242,3 +242,26 @@ class MinIOStorageProvider(StorageProvider):
             self._raise_for_s3_error(e)
         except (ConnectionError, TimeoutError, MaxRetryError) as e:
             self._raise_for_network_error(e)
+
+    def check_health(self) -> str:
+        """Verify connectivity to the MinIO bucket.
+
+        Returns:
+            A status message confirming the bucket is reachable.
+
+        Raises:
+            StorageProviderError: If the bucket is unreachable or credentials
+                are invalid.
+        """
+        try:
+            if not self._client.bucket_exists(self.bucket):
+                raise StorageProviderError(
+                    f"MinIO bucket '{self.bucket}' does not exist"
+                )
+            return f"Connected to MinIO bucket '{self.bucket}'"
+        except StorageProviderError:
+            raise
+        except S3Error as e:
+            self._raise_for_s3_error(e)
+        except (ConnectionError, TimeoutError, MaxRetryError) as e:
+            self._raise_for_network_error(e)

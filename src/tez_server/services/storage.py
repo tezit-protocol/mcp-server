@@ -150,6 +150,21 @@ class StorageProvider(ABC):
                 error (e.g. permission denied, credentials expired).
         """
 
+    @abstractmethod
+    def check_health(self) -> str:
+        """Verify connectivity to the storage backend.
+
+        Issues a lightweight request (e.g. HeadBucket / bucket_exists) to
+        confirm the bucket is reachable and credentials are valid.
+
+        Returns:
+            A human-readable status message on success.
+
+        Raises:
+            StorageProviderError: If the bucket is unreachable, credentials
+                are invalid, or the backend returns any error.
+        """
+
 
 class StorageService(StorageProvider):
     """S3 implementation of :class:`StorageProvider`.
@@ -396,6 +411,27 @@ class StorageService(StorageProvider):
             if self.account_id:
                 del_args["ExpectedBucketOwner"] = self.account_id
             self.s3.delete_objects(**del_args)
+        except ClientError as e:
+            self._raise_for_client_error(e)
+        except (ConnectTimeoutError, ReadTimeoutError, EndpointResolutionError) as e:
+            self._raise_for_network_error(e)
+
+    def check_health(self) -> str:
+        """Verify connectivity to the S3 bucket.
+
+        Returns:
+            A status message confirming the bucket is reachable.
+
+        Raises:
+            StorageProviderError: If the bucket is unreachable or credentials
+                are invalid.
+        """
+        try:
+            head_args: dict[str, Any] = {"Bucket": self.bucket}
+            if self.account_id:
+                head_args["ExpectedBucketOwner"] = self.account_id
+            self.s3.head_bucket(**head_args)
+            return f"Connected to S3 bucket '{self.bucket}'"
         except ClientError as e:
             self._raise_for_client_error(e)
         except (ConnectTimeoutError, ReadTimeoutError, EndpointResolutionError) as e:

@@ -95,10 +95,10 @@ class TestAddTool:
         assert add(1_000_000, 2_000_000) == 3_000_000
 
 
-class TestCheckS3Tool:
-    """Tests for the check_s3 MCP tool."""
+class TestCheckStorageTool:
+    """Tests for the check_storage MCP tool."""
 
-    def test_check_s3_success(self, aws_credentials: None) -> None:
+    def test_check_storage_success(self, aws_credentials: None) -> None:
         with mock_aws():
             client = boto3.client("s3", region_name=TEST_REGION)
             client.create_bucket(
@@ -106,47 +106,41 @@ class TestCheckS3Tool:
                 CreateBucketConfiguration={"LocationConstraint": TEST_REGION},
             )
 
-            with (
-                patch.dict(
-                    os.environ,
-                    {
-                        "TEZ_S3_BUCKET": TEST_BUCKET,
-                        "TEZ_AWS_ACCOUNT_ID": TEST_ACCOUNT_ID,
-                    },
-                ),
-                patch("tez_server.server.AWS_REGION", TEST_REGION),
+            with patch.dict(
+                os.environ,
+                {
+                    "STORAGE_BACKEND": "s3",
+                    "TEZ_S3_BUCKET": TEST_BUCKET,
+                    "TEZ_AWS_REGION": TEST_REGION,
+                    "TEZ_AWS_ACCOUNT_ID": TEST_ACCOUNT_ID,
+                },
             ):
-                from tez_server.server import check_s3
+                from tez_server.services.storage_factory import _get_s3_client
 
-                result = check_s3()
+                _get_s3_client.cache_clear()
+                from tez_server.server import check_storage
+
+                result = check_storage()
                 assert TEST_BUCKET in result
-                assert TEST_REGION in result
 
-    def test_check_s3_no_account_id(self, aws_credentials: None) -> None:
-        with patch.dict(os.environ, {"TEZ_AWS_ACCOUNT_ID": ""}):
-            from tez_server.server import check_s3
-
-            result = check_s3()
-            assert "not configured" in result
-
-    def test_check_s3_missing_bucket(self, aws_credentials: None) -> None:
+    def test_check_storage_missing_bucket(self, aws_credentials: None) -> None:
         with mock_aws():
-            from botocore.exceptions import ClientError
-
-            with (
-                patch.dict(
-                    os.environ,
-                    {
-                        "TEZ_S3_BUCKET": "nonexistent-bucket",
-                        "TEZ_AWS_ACCOUNT_ID": TEST_ACCOUNT_ID,
-                    },
-                ),
-                patch("tez_server.server.AWS_REGION", TEST_REGION),
+            with patch.dict(
+                os.environ,
+                {
+                    "STORAGE_BACKEND": "s3",
+                    "TEZ_S3_BUCKET": "nonexistent-bucket",
+                    "TEZ_AWS_REGION": TEST_REGION,
+                    "TEZ_AWS_ACCOUNT_ID": TEST_ACCOUNT_ID,
+                },
             ):
-                from tez_server.server import check_s3
+                from tez_server.services.storage import StorageProviderError
+                from tez_server.services.storage_factory import _get_s3_client
+                from tez_server.server import check_storage
 
-                with pytest.raises(ClientError):
-                    check_s3()
+                _get_s3_client.cache_clear()
+                with pytest.raises(StorageProviderError):
+                    check_storage()
 
 
 class TestCheckDynamoDBTool:
