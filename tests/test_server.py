@@ -124,8 +124,9 @@ class TestCheckStorageTool:
                 assert TEST_BUCKET in result
 
     def test_check_storage_missing_bucket(self, aws_credentials: None) -> None:
-        with mock_aws():
-            with patch.dict(
+        with (
+            mock_aws(),
+            patch.dict(
                 os.environ,
                 {
                     "STORAGE_BACKEND": "s3",
@@ -133,14 +134,15 @@ class TestCheckStorageTool:
                     "TEZ_AWS_REGION": TEST_REGION,
                     "TEZ_AWS_ACCOUNT_ID": TEST_ACCOUNT_ID,
                 },
-            ):
-                from tez_server.services.storage import StorageProviderError
-                from tez_server.services.storage_factory import _get_s3_client
-                from tez_server.server import check_storage
+            ),
+        ):
+            from tez_server.server import check_storage
+            from tez_server.services.storage import StorageProviderError
+            from tez_server.services.storage_factory import _get_s3_client
 
-                _get_s3_client.cache_clear()
-                with pytest.raises(StorageProviderError):
-                    check_storage()
+            _get_s3_client.cache_clear()
+            with pytest.raises(StorageProviderError):
+                check_storage()
 
 
 class TestCheckDynamoDBTool:

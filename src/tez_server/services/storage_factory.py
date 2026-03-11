@@ -63,6 +63,7 @@ def _build_s3_provider() -> StorageService:
 
 def _build_minio_provider() -> StorageProvider:
     from minio import Minio  # noqa: PLC0415
+
     from tez_server.services.minio_provider import MinIOStorageProvider  # noqa: PLC0415
 
     endpoint = os.environ.get("MINIO_ENDPOINT")
