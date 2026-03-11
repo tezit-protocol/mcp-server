@@ -12,9 +12,7 @@ from functools import cache
 from typing import Any
 
 import boto3
-from minio import Minio
 
-from tez_server.services.minio_provider import MinIOStorageProvider
 from tez_server.services.storage import (
     StorageProvider,
     StorageProviderError,
@@ -63,7 +61,10 @@ def _build_s3_provider() -> StorageService:
     return StorageService(s3_client=s3_client, bucket=bucket, account_id=account_id)
 
 
-def _build_minio_provider() -> MinIOStorageProvider:
+def _build_minio_provider() -> StorageProvider:
+    from minio import Minio  # noqa: PLC0415
+    from tez_server.services.minio_provider import MinIOStorageProvider  # noqa: PLC0415
+
     endpoint = os.environ.get("MINIO_ENDPOINT")
     access_key = os.environ.get("MINIO_ACCESS_KEY")
     secret_key = os.environ.get("MINIO_SECRET_KEY")
