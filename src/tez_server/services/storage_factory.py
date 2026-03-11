@@ -8,6 +8,8 @@ immediately at startup rather than at first use.
 from __future__ import annotations
 
 import os
+from functools import cache
+from typing import Any
 
 import boto3
 from minio import Minio
@@ -47,11 +49,17 @@ def get_storage_provider() -> StorageProvider:
     )
 
 
+@cache
+def _get_s3_client(region: str) -> Any:
+    """Return a cached boto3 S3 client for the given region."""
+    return boto3.client("s3", region_name=region)
+
+
 def _build_s3_provider() -> StorageService:
     bucket = os.environ.get("TEZ_S3_BUCKET", "tez-packages")
     region = os.environ.get("TEZ_AWS_REGION", "eu-west-2")
     account_id = os.environ.get("TEZ_AWS_ACCOUNT_ID")
-    s3_client = boto3.client("s3", region_name=region)
+    s3_client = _get_s3_client(region)
     return StorageService(s3_client=s3_client, bucket=bucket, account_id=account_id)
 
 
@@ -77,10 +85,14 @@ def _build_minio_provider() -> MinIOStorageProvider:
             f"Missing required env vars for MinIO backend: {', '.join(missing)}"
         )
 
+    assert endpoint is not None
+    assert access_key is not None
+    assert secret_key is not None
+    assert bucket is not None
     client = Minio(
-        endpoint,  # type: ignore[arg-type]
+        endpoint,
         access_key=access_key,
         secret_key=secret_key,
         secure=secure,
     )
-    return MinIOStorageProvider(client=client, bucket=bucket)  # type: ignore[arg-type]
+    return MinIOStorageProvider(client=client, bucket=bucket)

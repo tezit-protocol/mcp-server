@@ -10,15 +10,16 @@ this service only generates URLs and validates uploads.
 
 from __future__ import annotations
 
+import os
 from datetime import timedelta
 from typing import Any, NoReturn
 
 from minio import Minio
 from minio.deleteobjects import DeleteObject
 from minio.error import S3Error
+from urllib3.exceptions import MaxRetryError
 
 from tez_server.services.storage import (
-    DEFAULT_URL_EXPIRY,
     MANIFEST_FILENAME,
     TEZ_MD_FILENAME,
     StorageProvider,
@@ -62,20 +63,19 @@ class MinIOStorageProvider(StorageProvider):
             f"Network error reaching MinIO bucket '{self.bucket}': {e}"
         ) from e
 
-    def _stat_object(self, key: str) -> bool:
-        """Return True if the object exists, False if not found.
+    def _stat_object(self, key: str) -> Any | None:
+        """Return the stat object if it exists, None if not found.
 
         Raises:
             StorageProviderError: For any error other than NoSuchKey/NoSuchObject.
         """
         try:
-            self._client.stat_object(self.bucket, key)
-            return True
+            return self._client.stat_object(self.bucket, key)
         except S3Error as e:
             if e.code in ("NoSuchKey", "NoSuchObject"):
-                return False
+                return None
             self._raise_for_s3_error(e)
-        except Exception as e:
+        except (ConnectionError, TimeoutError, MaxRetryError) as e:
             self._raise_for_network_error(e)
 
     # ------------------------------------------------------------------
@@ -86,7 +86,7 @@ class MinIOStorageProvider(StorageProvider):
         self,
         tez_id: str,
         files: list[dict[str, Any]],
-        expires_in: int = DEFAULT_URL_EXPIRY,
+        expires_in: int | None = None,
     ) -> dict[str, str]:
         """Generate pre-signed PUT URLs for context files + manifest files.
 
@@ -103,6 +103,8 @@ class MinIOStorageProvider(StorageProvider):
             StorageProviderError: If credentials are invalid, the bucket does
                 not exist, or the backend is unreachable.
         """
+        if expires_in is None:
+            expires_in = int(os.environ.get("STORAGE_URL_EXPIRY_SECONDS", "900"))
         try:
             expiry = timedelta(seconds=expires_in)
             urls: dict[str, str] = {}
@@ -119,14 +121,14 @@ class MinIOStorageProvider(StorageProvider):
             return urls
         except S3Error as e:
             self._raise_for_s3_error(e)
-        except Exception as e:
+        except (ConnectionError, TimeoutError, MaxRetryError) as e:
             self._raise_for_network_error(e)
 
     def generate_download_urls(
         self,
         tez_id: str,
         files: list[dict[str, Any]],
-        expires_in: int = DEFAULT_URL_EXPIRY,
+        expires_in: int | None = None,
     ) -> dict[str, str]:
         """Generate pre-signed GET URLs for all files + manifest files.
 
@@ -134,7 +136,7 @@ class MinIOStorageProvider(StorageProvider):
             tez_id: The Tez identifier.
             files: List of file dicts with a ``"name"`` key.
             expires_in: URL expiry in seconds. Defaults to
-                ``STORAGE_URL_EXPIRY_SECONDS`` env var (900 if not set).
+                ``STORAGE_DOWNLOAD_URL_EXPIRY_SECONDS`` env var (3600 if not set).
 
         Returns:
             Dict mapping filename -> pre-signed GET URL.
@@ -143,6 +145,10 @@ class MinIOStorageProvider(StorageProvider):
             StorageProviderError: If credentials are invalid, the bucket does
                 not exist, or the backend is unreachable.
         """
+        if expires_in is None:
+            expires_in = int(
+                os.environ.get("STORAGE_DOWNLOAD_URL_EXPIRY_SECONDS", "3600")
+            )
         try:
             expiry = timedelta(seconds=expires_in)
             urls: dict[str, str] = {}
@@ -159,7 +165,7 @@ class MinIOStorageProvider(StorageProvider):
             return urls
         except S3Error as e:
             self._raise_for_s3_error(e)
-        except Exception as e:
+        except (ConnectionError, TimeoutError, MaxRetryError) as e:
             self._raise_for_network_error(e)
 
     def validate_uploads(
@@ -187,8 +193,9 @@ class MinIOStorageProvider(StorageProvider):
 
         for f in files:
             key = f"{tez_id}/context/{f['name']}"
-            if self._stat_object(key):
-                verified.append(f)
+            obj = self._stat_object(key)
+            if obj is not None:
+                verified.append({**f, "etag": obj.etag})
             else:
                 missing.append(f)
 
@@ -233,5 +240,5 @@ class MinIOStorageProvider(StorageProvider):
             raise
         except S3Error as e:
             self._raise_for_s3_error(e)
-        except Exception as e:
+        except (ConnectionError, TimeoutError, MaxRetryError) as e:
             self._raise_for_network_error(e)

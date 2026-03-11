@@ -425,7 +425,7 @@ class TestStorageServiceErrors:
     def _raiser(exc: Exception) -> Any:
         """Return a callable that raises ``exc`` when called."""
 
-        def _raise(**kwargs: Any) -> Any:
+        def _raise(*args: Any, **kwargs: Any) -> Any:
             raise exc
 
         return _raise
@@ -499,6 +499,38 @@ class TestStorageServiceErrors:
         )
         with pytest.raises(StorageProviderError):
             svc.delete_tez("abc123")
+
+    def test_client_error_in_generate_upload_urls(self, s3_client: S3Client) -> None:
+        svc = StorageService(s3_client=s3_client, bucket=TEST_BUCKET)
+        svc.s3.generate_presigned_url = self._raiser(  # type: ignore[assignment]
+            self._client_error("AccessDenied", "Access Denied")
+        )
+        with pytest.raises(StorageProviderError, match="Permission denied"):
+            svc.generate_upload_urls(tez_id="abc123", files=[])
+
+    def test_network_error_in_generate_upload_urls(self, s3_client: S3Client) -> None:
+        svc = StorageService(s3_client=s3_client, bucket=TEST_BUCKET)
+        svc.s3.generate_presigned_url = self._raiser(  # type: ignore[assignment]
+            ConnectTimeoutError(endpoint_url="https://s3.amazonaws.com")
+        )
+        with pytest.raises(StorageProviderError, match="Network error"):
+            svc.generate_upload_urls(tez_id="abc123", files=[])
+
+    def test_client_error_in_generate_download_urls(self, s3_client: S3Client) -> None:
+        svc = StorageService(s3_client=s3_client, bucket=TEST_BUCKET)
+        svc.s3.generate_presigned_url = self._raiser(  # type: ignore[assignment]
+            self._client_error("AccessDenied", "Access Denied")
+        )
+        with pytest.raises(StorageProviderError, match="Permission denied"):
+            svc.generate_download_urls(tez_id="abc123", files=[])
+
+    def test_network_error_in_generate_download_urls(self, s3_client: S3Client) -> None:
+        svc = StorageService(s3_client=s3_client, bucket=TEST_BUCKET)
+        svc.s3.generate_presigned_url = self._raiser(  # type: ignore[assignment]
+            ConnectTimeoutError(endpoint_url="https://s3.amazonaws.com")
+        )
+        with pytest.raises(StorageProviderError, match="Network error"):
+            svc.generate_download_urls(tez_id="abc123", files=[])
 
     def test_custom_expiry_reflected_in_upload_url(
         self, s3_client: S3Client, sample_files: list[dict[str, Any]]

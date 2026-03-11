@@ -23,9 +23,10 @@ MANIFEST_FILENAME = "manifest.json"
 TEZ_MD_FILENAME = "tez.md"
 BUNDLE_FILES: tuple[str, ...] = (MANIFEST_FILENAME, TEZ_MD_FILENAME)
 
-DEFAULT_URL_EXPIRY: int = int(os.environ.get("STORAGE_URL_EXPIRY_SECONDS", "900"))
+DEFAULT_URL_EXPIRY: int = 900  # upload default; override via STORAGE_URL_EXPIRY_SECONDS
+DEFAULT_DOWNLOAD_URL_EXPIRY: int = 3600  # see STORAGE_DOWNLOAD_URL_EXPIRY_SECONDS
 
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # pragma: no cover
     from mypy_boto3_s3 import S3Client
 
 
@@ -65,7 +66,7 @@ class StorageProvider(ABC):
         self,
         tez_id: str,
         files: list[dict[str, Any]],
-        expires_in: int = DEFAULT_URL_EXPIRY,
+        expires_in: int | None = None,
     ) -> dict[str, str]:
         """Generate pre-signed PUT URLs for uploading Tez files.
 
@@ -89,7 +90,7 @@ class StorageProvider(ABC):
         self,
         tez_id: str,
         files: list[dict[str, Any]],
-        expires_in: int = DEFAULT_URL_EXPIRY,
+        expires_in: int | None = None,
     ) -> dict[str, str]:
         """Generate pre-signed GET URLs for downloading Tez files.
 
@@ -229,7 +230,7 @@ class StorageService(StorageProvider):
         self,
         tez_id: str,
         files: list[dict[str, Any]],
-        expires_in: int = DEFAULT_URL_EXPIRY,
+        expires_in: int | None = None,
     ) -> dict[str, str]:
         """Generate pre-signed PUT URLs for context files + manifest files.
 
@@ -246,6 +247,8 @@ class StorageService(StorageProvider):
             StorageProviderError: If credentials are invalid, the bucket does
                 not exist, access is denied, or the backend is unreachable.
         """
+        if expires_in is None:
+            expires_in = int(os.environ.get("STORAGE_URL_EXPIRY_SECONDS", "900"))
         try:
             urls: dict[str, str] = {}
             for f in files:
@@ -285,7 +288,7 @@ class StorageService(StorageProvider):
         self,
         tez_id: str,
         files: list[dict[str, Any]],
-        expires_in: int = DEFAULT_URL_EXPIRY,
+        expires_in: int | None = None,
     ) -> dict[str, str]:
         """Generate pre-signed GET URLs for all files + manifest files.
 
@@ -293,7 +296,7 @@ class StorageService(StorageProvider):
             tez_id: The Tez identifier.
             files: List of file dicts with a ``"name"`` key.
             expires_in: URL expiry in seconds. Defaults to
-                ``STORAGE_URL_EXPIRY_SECONDS`` env var (900 if not set).
+                ``STORAGE_DOWNLOAD_URL_EXPIRY_SECONDS`` env var (3600 if not set).
 
         Returns:
             Dict mapping filename -> pre-signed GET URL.
@@ -302,6 +305,10 @@ class StorageService(StorageProvider):
             StorageProviderError: If credentials are invalid, the bucket does
                 not exist, access is denied, or the backend is unreachable.
         """
+        if expires_in is None:
+            expires_in = int(
+                os.environ.get("STORAGE_DOWNLOAD_URL_EXPIRY_SECONDS", "3600")
+            )
         try:
             urls: dict[str, str] = {}
             for f in files:

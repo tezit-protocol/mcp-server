@@ -129,7 +129,7 @@ class TestGenerateDownloadUrls:
 class TestValidateUploadsFound:
     def test_all_files_present_returns_success(self) -> None:
         client = MagicMock()
-        client.stat_object.return_value = MagicMock()  # exists
+        client.stat_object.return_value = MagicMock(etag="abc123etag")
         svc = _make_provider(client)
 
         result = svc.validate_uploads(tez_id=TEZ_ID, files=SAMPLE_FILES)
@@ -137,6 +137,7 @@ class TestValidateUploadsFound:
         assert result.success is True
         assert result.missing == []
         assert len(result.verified_files) == len(SAMPLE_FILES)
+        assert all("etag" in f for f in result.verified_files)
 
 
 # ---------------------------------------------------------------------------
