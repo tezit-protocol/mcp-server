@@ -12,7 +12,7 @@ description = "Reference MCP server for the Tezit Protocol"
 requires-python = ">=3.12"
 dependencies = [
     "fastmcp>=2.0",
-    "boto3>=1.35",
+    "boto3>=1.42.88",
     "sendgrid>=6.11",
 ]
 
